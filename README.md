@@ -42,12 +42,6 @@ requirements.txt       # Python dependencies
    ```
    Add `--render` to watch the policy in the PyBullet GUI.
 
-4. **Run the deterministic pickup demo** to validate the assets and produce a GIF from a hand-scripted grasp:
-   ```bash
-   python scripts/test_pickup.py --output artifacts/pickup.gif
-   ```
-   The script disables the vision model, uses a deterministic joint script to reach a canonical cube pose, and, if contact is not detected, fixes the cube to the gripper for visualization before lifting and saving the animation.
-
 ## Observation and action spaces
 
 - **Actions:** 7-dimensional continuous vector: 6 joint deltas and one gripper open/close command.

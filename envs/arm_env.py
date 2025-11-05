@@ -40,17 +40,11 @@ class ArmPickEnv(gym.Env[np.ndarray, np.ndarray]):
         render_mode: Optional[str] = None,
         config: Optional[ArmConfig] = None,
         vision_device: Optional[str] = None,
-        vision_locator: Optional[VisionBlockLocator] = None,
-        vision_enabled: bool = True,
     ) -> None:
         super().__init__()
         self.render_mode = render_mode
         self.config = config or ArmConfig()
-        self.vision_enabled = vision_enabled
-        if self.vision_enabled:
-            self.vision_locator = vision_locator or VisionBlockLocator(device=vision_device)
-        else:
-            self.vision_locator = vision_locator
+        self.vision_locator = VisionBlockLocator(device=vision_device)
 
         self.physics_client = None
         self.step_counter = 0
@@ -59,9 +53,8 @@ class ArmPickEnv(gym.Env[np.ndarray, np.ndarray]):
         self.block_uid = None
         self.table_uid = None
         self.joint_indices = list(range(6))
-        self.gripper_indices = [7, 8]
-        self.gripper_base_link_index = 6
-        self.camera_link_index = 9  # camera_mount link index (after fingers)
+        self.gripper_indices = [6, 7]
+        self.camera_link_index = 8  # camera_mount link index (after fingers)
         self.target_joint_positions = np.zeros(len(self.joint_indices))
         self.target_gripper = 0.015
         self.block_detection: Optional[BlockDetection] = None
@@ -138,7 +131,7 @@ class ArmPickEnv(gym.Env[np.ndarray, np.ndarray]):
                 jointIndex=gripper_index,
                 controlMode=p.POSITION_CONTROL,
                 targetPosition=target,
-                force=80,
+                force=30,
                 positionGain=0.8,
                 velocityGain=1.0,
             )
@@ -174,9 +167,7 @@ class ArmPickEnv(gym.Env[np.ndarray, np.ndarray]):
     def _sample_block_position(self):
         x = self.np_random.uniform(0.2, 0.6)
         y = self.np_random.uniform(-0.15, 0.15)
-        table_top = 0.425
-        block_half_height = 0.02
-        z = table_top + block_half_height
+        z = 0.775
         return [float(x), float(y), float(z)]
 
     def _get_observation(self) -> np.ndarray:
@@ -185,20 +176,12 @@ class ArmPickEnv(gym.Env[np.ndarray, np.ndarray]):
         joint_velocities = np.array([state[1] for state in joint_states], dtype=np.float32)
         gripper_pos = joint_positions[-2:]
 
-        if self.vision_enabled and self.vision_locator is not None:
-            camera_rgb, camera_depth = self._render_camera()
-            self.block_detection = self.vision_locator.locate(camera_rgb)
-            block_world = self._project_detection_to_world(self.block_detection, camera_depth)
-            if block_world is None or not np.all(np.isfinite(block_world)):
-                block_world = np.array(p.getBasePositionAndOrientation(self.block_uid)[0])
-            self.block_detection.world_position = block_world
-        else:
+        camera_rgb, camera_depth = self._render_camera()
+        self.block_detection = self.vision_locator.locate(camera_rgb)
+        block_world = self._project_detection_to_world(self.block_detection, camera_depth)
+        if block_world is None or not np.all(np.isfinite(block_world)):
             block_world = np.array(p.getBasePositionAndOrientation(self.block_uid)[0])
-            self.block_detection = BlockDetection(
-                pixel=(self.config.camera_width // 2, self.config.camera_height // 2),
-                confidence=1.0,
-                world_position=block_world,
-            )
+        self.block_detection.world_position = block_world
         block_in_base = self._world_to_base(block_world)
 
         obs = np.concatenate(
@@ -292,7 +275,7 @@ class ArmPickEnv(gym.Env[np.ndarray, np.ndarray]):
         reward -= 5.0 * abs(gripper_width - self.target_gripper)
 
         success = False
-        table_height = 0.425
+        table_height = 0.775
         block_height = block_pos[2]
         contacts_left = p.getContactPoints(self.arm_uid, self.block_uid, self.gripper_indices[0])
         contacts_right = p.getContactPoints(self.arm_uid, self.block_uid, self.gripper_indices[1])

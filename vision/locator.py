@@ -6,17 +6,9 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import numpy as np
+import open_clip
+import torch
 from PIL import Image
-
-try:  # pragma: no cover - exercised dynamically when dependencies present
-    import open_clip  # type: ignore
-except ImportError:  # pragma: no cover - allows optional dependency
-    open_clip = None
-
-try:  # pragma: no cover - exercised dynamically when dependencies present
-    import torch
-except ImportError:  # pragma: no cover - allows optional dependency
-    torch = None
 
 
 @dataclass
@@ -39,17 +31,13 @@ class VisionBlockLocator:
     """
 
     def __init__(self, device: Optional[str] = None, patch_size: int = 96, stride: int = 48) -> None:
-        if open_clip is None or torch is None:  # pragma: no cover - dependency guard
-            raise ImportError(
-                "VisionBlockLocator requires the optional dependencies 'open_clip' and 'torch'."
-            )
         if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"  # type: ignore[union-attr]
+            device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
-        self.model, _, self.preprocess = open_clip.create_model_and_transforms(  # type: ignore[union-attr]
+        self.model, _, self.preprocess = open_clip.create_model_and_transforms(
             "ViT-B-32", pretrained="laion2b_s34b_b79k", device=self.device
         )
-        self.tokenizer = open_clip.get_tokenizer("ViT-B-32")  # type: ignore[union-attr]
+        self.tokenizer = open_clip.get_tokenizer("ViT-B-32")
         with torch.no_grad():
             text = ["a small colored block on a table"]
             tokens = self.tokenizer(text).to(self.device)
@@ -58,6 +46,7 @@ class VisionBlockLocator:
         self.patch_size = patch_size
         self.stride = stride
 
+    @torch.no_grad()
     def locate(self, rgb: np.ndarray) -> BlockDetection:
         """Locate the block in an RGB image.
 
@@ -90,15 +79,12 @@ class VisionBlockLocator:
             patches.append(self.preprocess(resized).to(self.device))
             centers.append((width // 2, height // 2))
 
-        if torch is None:  # pragma: no cover - dependency guard
-            raise ImportError("torch is required to run vision inference")
-        with torch.no_grad():
-            image_tensor = torch.stack(patches)
-            image_features = self.model.encode_image(image_tensor)
-            image_features /= image_features.norm(dim=-1, keepdim=True)
-            sims = image_features @ self.text_features.T
-            best_idx = int(torch.argmax(sims).item())
-            confidence = float(sims[best_idx].item())
+        image_tensor = torch.stack(patches)
+        image_features = self.model.encode_image(image_tensor)
+        image_features /= image_features.norm(dim=-1, keepdim=True)
+        sims = image_features @ self.text_features.T
+        best_idx = int(torch.argmax(sims).item())
+        confidence = float(sims[best_idx].item())
         best_center = centers[best_idx]
         return BlockDetection(pixel=best_center, confidence=confidence, world_position=None)
 
